@@ -410,11 +410,36 @@ Core.Callback.Register('bcc-farming:ManagePlantWateredStatus', function(source, 
         return cb(false)
     end
 
-    local fullWaterBucket = Config.fullWaterBucket
+    -- [[ 1. ดึงข้อมูลพืชจากฐานข้อมูลเพื่อดูว่าเป็นพืชชนิดไหน ]]
+    local plantRow = MySQL.single.await('SELECT plant_type FROM `bcc_farming` WHERE `plant_id` = ?', { plantId })
+    if not plantRow or not plantRow.plant_type then
+        DBG:Error('Plant type not found in database for ID: ' .. tostring(plantId))
+        return cb(false)
+    end
+
+    local plantType = plantRow.plant_type
+
+    -- [[ 2. ค้นหา Config ของพืชชนิดนั้นเพื่อดูว่ากำหนด allowedWater ไว้หรือไม่ ]]
+    local targetPlantConfig = nil
+    for _, cfg in pairs(Plants) do
+        if cfg.seedName == plantType then
+            targetPlantConfig = cfg
+            break
+        end
+    end
+
+    -- [[ 3. กำหนดรายการถังน้ำที่จะตรวจสอบ ]]
+    local bucketsToCheck = Config.fullWaterBucket -- ค่าเริ่มต้น (ใช้ตาม Config.lua)
+    
+    -- ถ้าพืชชนิดนี้มีการกำหนด allowedWater เฉพาะตัว ให้ใช้ค่านั้นแทน
+    if targetPlantConfig and targetPlantConfig.allowedWater then
+        bucketsToCheck = targetPlantConfig.allowedWater
+    end
+
     local waterBucketUses = Config.waterBucketUses or 1
 
-    -- Check for any full water bucket
-    for _, itemName in ipairs(fullWaterBucket) do
+    -- [[ 4. วนลูปเช็คไอเทมในตัวผู้เล่นตามรายการที่กำหนด ]]
+    for _, itemName in ipairs(bucketsToCheck) do
         local waterItem = exports.vorp_inventory:getItem(src, itemName)
 
         if waterItem then
@@ -422,15 +447,14 @@ Core.Callback.Register('bcc-farming:ManagePlantWateredStatus', function(source, 
             local usesLeft = tonumber(meta.waterUsesLeft) or waterBucketUses
             usesLeft = usesLeft - 1
 
-        if usesLeft <= 0 then
+            if usesLeft <= 0 then
                 -- Remove the used bucket (Modified: Do not give back empty bucket)
+                -- ลบถังน้ำออกจากตัวเมื่อใช้หมด (และไม่คืนถังเปล่าตามที่คุณขอ)
                 local successRemove = exports.vorp_inventory:subItemById(src, waterItem.id, nil, nil, 1)
                 
-                -- คอมเมนต์บรรทัดนี้ไว้เพื่อไม่ให้คืนถังเปล่า
-                -- local successAdd = exports.vorp_inventory:addItem(src, Config.emptyWaterBucket, 1)
+                -- local successAdd = exports.vorp_inventory:addItem(src, Config.emptyWaterBucket, 1) -- คอมเมนต์ไว้ไม่ให้คืน
 
-                -- แก้ไขเงื่อนไขเช็คแค่การลบ
-                if not successRemove then 
+                if not successRemove then
                     DBG:Error('Failed to remove watering bucket for source: ' .. tostring(src))
                     return cb(false)
                 end
@@ -459,7 +483,7 @@ Core.Callback.Register('bcc-farming:ManagePlantWateredStatus', function(source, 
         end
     end
 
-    DBG:Error('No water bucket found for source: ' .. tostring(src))
+    DBG:Error('No suitable water bucket found for source: ' .. tostring(src))
     cb(false)
 end)
 

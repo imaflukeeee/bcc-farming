@@ -419,6 +419,9 @@ Plants = {
         seedName = 'cocoaseeds',           -- ชื่อไอเทมสำหรับเมล็ดพันธุ์
         seedAmount = 1,                    -- จำนวนเมล็ดที่ต้องใช้ในการปลูก
         fertilizer = true,
+        allowedWater = {'wateringcan'}, 
+        -- หรือถ้าต้องการให้ใช้ได้ทั้งสองอย่าง ก็ใส่แบบนี้:
+        -- allowedWater = {'wateringcan', 'wateringcan_dirtywater'},
         plantProp = 's_ginsengpicked01x',  -- โมเดล (Prop) ของต้นไม้ที่จะเสกออกมา
         soilRequired = false,              -- ถ้าเป็น true เมล็ดต้องใช้ดินในการปลูก
         soilAmount = 1,                    -- จำนวนดินที่ต้องใช้ในการปลูก
@@ -461,6 +464,7 @@ Plants = {
         seedName = 'cornseed',             -- ชื่อไอเทมสำหรับเมล็ดพันธุ์
         seedAmount = 1,                    -- จำนวนเมล็ดที่ต้องใช้ในการปลูก
         fertilizer = false,
+        allowedWater = {'wateringcan_dirtywater'},
         plantProp = 'crp_cornstalks_bb_sim', -- โมเดล (Prop) ของต้นไม้ที่จะเสกออกมา
         soilRequired = false,              -- ถ้าเป็น true เมล็ดต้องใช้ดินในการปลูก
         soilAmount = 1,                    -- จำนวนดินที่ต้องใช้ในการปลูก
