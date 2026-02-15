@@ -107,18 +107,15 @@ RegisterNetEvent('bcc-farming:AddPlant', function(plantData, plantCoords)
     else
         DBG:Error('Unable to normalize plant coordinates for source: ' .. tostring(src))
         NotifyClient(src, _U('mustUseLockedSpot'), "error", 4000)
+        -- Refund logic
         if plantData.seedName and plantData.seedAmount and plantData.seedAmount > 0 then
             if exports.vorp_inventory:canCarryItem(src, plantData.seedName, plantData.seedAmount) then
                 exports.vorp_inventory:addItem(src, plantData.seedName, plantData.seedAmount)
-            else
-                DBG:Warning('Player ' .. tostring(src) .. ' could not carry returned seeds: ' .. tostring(plantData.seedName))
             end
         end
         if plantData.soilRequired and plantData.soilName and plantData.soilAmount and plantData.soilAmount > 0 then
             if exports.vorp_inventory:canCarryItem(src, plantData.soilName, plantData.soilAmount) then
                 exports.vorp_inventory:addItem(src, plantData.soilName, plantData.soilAmount)
-            else
-                DBG:Warning('Player ' .. tostring(src) .. ' could not carry returned soil: ' .. tostring(plantData.soilName))
             end
         end
         return
@@ -130,18 +127,15 @@ RegisterNetEvent('bcc-farming:AddPlant', function(plantData, plantCoords)
         playerHouses = GetPlayerHouses(character.charIdentifier)
         if not playerHouses or #playerHouses == 0 then
             NotifyClient(src, _U('needHouseOwnership'), "error", 4000)
+            -- Refund logic
             if plantData.seedName and plantData.seedAmount and plantData.seedAmount > 0 then
                 if exports.vorp_inventory:canCarryItem(src, plantData.seedName, plantData.seedAmount) then
                     exports.vorp_inventory:addItem(src, plantData.seedName, plantData.seedAmount)
-                else
-                    DBG:Warning('Player ' .. tostring(src) .. ' could not carry returned seeds: ' .. tostring(plantData.seedName))
                 end
             end
             if plantData.soilRequired and plantData.soilName and plantData.soilAmount and plantData.soilAmount > 0 then
                 if exports.vorp_inventory:canCarryItem(src, plantData.soilName, plantData.soilAmount) then
                     exports.vorp_inventory:addItem(src, plantData.soilName, plantData.soilAmount)
-                else
-                    DBG:Warning('Player ' .. tostring(src) .. ' could not carry returned soil: ' .. tostring(plantData.soilName))
                 end
             end
             return
@@ -222,18 +216,15 @@ RegisterNetEvent('bcc-farming:AddPlant', function(plantData, plantCoords)
         if not withinLock and not (Config.plantSetup.requireHouseOwnership and withinHouseRadius) then
             DBG:Error('Player ' .. tostring(src) .. ' attempted to plant outside of locked coordinates.')
             NotifyClient(src, _U('mustUseLockedSpot'), "error", 4000)
+            -- Refund logic
             if plantData.seedName and plantData.seedAmount and plantData.seedAmount > 0 then
                 if exports.vorp_inventory:canCarryItem(src, plantData.seedName, plantData.seedAmount) then
                     exports.vorp_inventory:addItem(src, plantData.seedName, plantData.seedAmount)
-                else
-                    DBG:Warning('Player ' .. tostring(src) .. ' could not carry returned seeds: ' .. tostring(plantData.seedName))
                 end
             end
             if plantData.soilRequired and plantData.soilName and plantData.soilAmount and plantData.soilAmount > 0 then
                 if exports.vorp_inventory:canCarryItem(src, plantData.soilName, plantData.soilAmount) then
                     exports.vorp_inventory:addItem(src, plantData.soilName, plantData.soilAmount)
-                else
-                    DBG:Warning('Player ' .. tostring(src) .. ' could not carry returned soil: ' .. tostring(plantData.soilName))
                 end
             end
             return
@@ -242,41 +233,81 @@ RegisterNetEvent('bcc-farming:AddPlant', function(plantData, plantCoords)
 
     if Config.plantSetup.requireHouseOwnership and not withinHouseRadius and not withinLock then
         NotifyClient(src, _U('needHousePlot'), "error", 4000)
+        -- Refund logic
         if plantData.seedName and plantData.seedAmount and plantData.seedAmount > 0 then
             if exports.vorp_inventory:canCarryItem(src, plantData.seedName, plantData.seedAmount) then
                 exports.vorp_inventory:addItem(src, plantData.seedName, plantData.seedAmount)
-            else
-                DBG:Warning('Player ' .. tostring(src) .. ' could not carry returned seeds: ' .. tostring(plantData.seedName))
             end
         end
         if plantData.soilRequired and plantData.soilName and plantData.soilAmount and plantData.soilAmount > 0 then
             if exports.vorp_inventory:canCarryItem(src, plantData.soilName, plantData.soilAmount) then
                 exports.vorp_inventory:addItem(src, plantData.soilName, plantData.soilAmount)
-            else
-                DBG:Warning('Player ' .. tostring(src) .. ' could not carry returned soil: ' .. tostring(plantData.soilName))
             end
         end
         return
     end
 
-    -- Insert plant into database
-    local plantId = MySQL.insert.await('INSERT INTO `bcc_farming` (plant_coords, plant_type, plant_watered, time_left, plant_owner) VALUES (?, ?, ?, ?, ?)',
-    { json.encode(finalCoords), plantData.seedName, 'false', plantData.timeToGrow, character.charIdentifier })
+    -- [[ AUTO WATER LOGIC START ]] --
+    local isWatered = 'false'
+    local bucketsToCheck = Config.fullWaterBucket
+    if plantData.allowedWater then
+        bucketsToCheck = plantData.allowedWater
+    end
+    
+    local waterFound = false
+    
+    -- Loop to check and consume water bucket
+    for _, itemName in ipairs(bucketsToCheck) do
+        local waterItem = exports.vorp_inventory:getItem(src, itemName)
+        if waterItem then
+            -- Remove 1 bucket (Consume item, do not return empty)
+            local successRemove = exports.vorp_inventory:subItemById(src, waterItem.id, nil, nil, 1)
+            
+            if successRemove then
+                isWatered = 'true'
+                waterFound = true
+                NotifyClient(src, _U('waterPlant'), "success", 3000)
+                break
+            end
+        end
+    end
 
-    if not plantId then
-        DBG:Error('Failed to insert plant into database.')
+    -- If no water found, CANCEL planting and REFUND items
+    if not waterFound then
+        NotifyClient(src, _U('noWaterBucket'), "error", 4000)
+        DBG:Error('Player ' .. tostring(src) .. ' missing water bucket at AddPlant stage. Refunding items.')
+        
+        -- Refund Seeds
         if plantData.seedName and plantData.seedAmount and plantData.seedAmount > 0 then
             if exports.vorp_inventory:canCarryItem(src, plantData.seedName, plantData.seedAmount) then
                 exports.vorp_inventory:addItem(src, plantData.seedName, plantData.seedAmount)
-            else
-                DBG:Warning('Player ' .. tostring(src) .. ' could not carry returned seeds: ' .. tostring(plantData.seedName))
+            end
+        end
+        -- Refund Soil
+        if plantData.soilRequired and plantData.soilName and plantData.soilAmount and plantData.soilAmount > 0 then
+            if exports.vorp_inventory:canCarryItem(src, plantData.soilName, plantData.soilAmount) then
+                exports.vorp_inventory:addItem(src, plantData.soilName, plantData.soilAmount)
+            end
+        end
+        return -- Stop processing, do not insert into DB
+    end
+    -- [[ AUTO WATER LOGIC END ]] --
+
+    -- Insert plant into database
+    local plantId = MySQL.insert.await('INSERT INTO `bcc_farming` (plant_coords, plant_type, plant_watered, time_left, plant_owner) VALUES (?, ?, ?, ?, ?)',
+    { json.encode(finalCoords), plantData.seedName, isWatered, plantData.timeToGrow, character.charIdentifier })
+
+    if not plantId then
+        DBG:Error('Failed to insert plant into database.')
+        -- Refund logic if DB insert fails
+        if plantData.seedName and plantData.seedAmount and plantData.seedAmount > 0 then
+            if exports.vorp_inventory:canCarryItem(src, plantData.seedName, plantData.seedAmount) then
+                exports.vorp_inventory:addItem(src, plantData.seedName, plantData.seedAmount)
             end
         end
         if plantData.soilRequired and plantData.soilName and plantData.soilAmount and plantData.soilAmount > 0 then
             if exports.vorp_inventory:canCarryItem(src, plantData.soilName, plantData.soilAmount) then
                 exports.vorp_inventory:addItem(src, plantData.soilName, plantData.soilAmount)
-            else
-                DBG:Warning('Player ' .. tostring(src) .. ' could not carry returned soil: ' .. tostring(plantData.soilName))
             end
         end
         return
@@ -286,14 +317,14 @@ RegisterNetEvent('bcc-farming:AddPlant', function(plantData, plantCoords)
         plant_id = plantId,
         plant_coords = json.encode(finalCoords),
         plant_type = plantData.seedName,
-        plant_watered = 'false',
+        plant_watered = isWatered,
         time_left = plantData.timeToGrow,
         plant_owner = character.charIdentifier
     })
 
     -- Trigger client event
     local target = Config.plantSetup.lockedToPlanter and src or -1
-    TriggerClientEvent('bcc-farming:PlantPlanted', target, plantId, plantData, finalCoords, plantData.timeToGrow, false, src)
+    TriggerClientEvent('bcc-farming:PlantPlanted', target, plantId, plantData, finalCoords, plantData.timeToGrow, isWatered == 'true', src)
 end)
 
 --- @param plantData table

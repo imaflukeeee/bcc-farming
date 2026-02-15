@@ -196,6 +196,52 @@ CreateThread(function()
             end
             DBG:Success("Seed check passed")
 
+            -- [[ START: Water Check Logic ]] 
+            -- เพิ่มการเช็คถังน้ำตรงนี้ (เพื่อไม่ให้ปลูกถ้าน้ำไม่มี)
+            DBG:Info("Checking water requirements...")
+            local bucketsToCheck = Config.fullWaterBucket
+            if plantCfg.allowedWater then
+                bucketsToCheck = plantCfg.allowedWater
+            end
+
+            local hasWater = false
+            for _, wItem in ipairs(bucketsToCheck) do
+                if exports.vorp_inventory:getItemCount(src, nil, wItem) > 0 then
+                    hasWater = true
+                    break
+                end
+            end
+
+            if not hasWater then
+                DBG:Error("Player doesn't have required water bucket")
+                NotifyClient(src, _U('noWaterBucket'), "error", 4000)
+                return
+            end
+            DBG:Success("Water check passed")
+            -- [[ END: Water Check Logic ]]
+
+            -- [[ Fertilizer Check (บังคับปุ๋ย) ]]
+            if plantCfg.fertilizer == true then
+                DBG:Info("Checking fertilizer requirements...")
+                local hasAnyFertilizer = false
+                
+                -- วนลูปเช็คจากรายการปุ๋ยใน Config ว่ามีชิ้นไหนอยู่ในตัวบ้างไหม
+                for _, fert in pairs(Config.fertilizerSetup) do
+                    if exports.vorp_inventory:getItemCount(src, nil, fert.fertName) > 0 then
+                        hasAnyFertilizer = true
+                        break
+                    end
+                end
+
+                if not hasAnyFertilizer then
+                    DBG:Error("Player doesn't have required fertilizer for this plant")
+                    -- คุณอาจจะต้องเพิ่มข้อความแจ้งเตือน 'noFertilizer' ในภาษา (Locales) ด้วย
+                    NotifyClient(src, "คุณต้องมีปุ๋ยเพื่อปลูกพืชชนิดนี้", "error", 4000) 
+                    return -- หยุดการทำงาน ไม่ให้ปลูก
+                end
+                DBG:Success("Fertilizer check passed")
+            end
+
             -- Remove Seeds and Soil
             DBG:Info("Removing seeds and soil from inventory...")
             exports.vorp_inventory:closeInventory(src)
