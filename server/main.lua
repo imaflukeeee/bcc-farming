@@ -422,12 +422,16 @@ Core.Callback.Register('bcc-farming:ManagePlantWateredStatus', function(source, 
             local usesLeft = tonumber(meta.waterUsesLeft) or waterBucketUses
             usesLeft = usesLeft - 1
 
-            if usesLeft <= 0 then
-                -- Remove the used bucket and replace with an empty one
+        if usesLeft <= 0 then
+                -- Remove the used bucket (Modified: Do not give back empty bucket)
                 local successRemove = exports.vorp_inventory:subItemById(src, waterItem.id, nil, nil, 1)
-                local successAdd = exports.vorp_inventory:addItem(src, Config.emptyWaterBucket, 1)
-                if not successRemove or not successAdd then
-                    DBG:Error('Failed to swap watering bucket for source: ' .. tostring(src))
+                
+                -- คอมเมนต์บรรทัดนี้ไว้เพื่อไม่ให้คืนถังเปล่า
+                -- local successAdd = exports.vorp_inventory:addItem(src, Config.emptyWaterBucket, 1)
+
+                -- แก้ไขเงื่อนไขเช็คแค่การลบ
+                if not successRemove then 
+                    DBG:Error('Failed to remove watering bucket for source: ' .. tostring(src))
                     return cb(false)
                 end
             else
