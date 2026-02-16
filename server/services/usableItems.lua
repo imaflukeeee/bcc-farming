@@ -245,10 +245,24 @@ CreateThread(function()
             -- Remove Seeds and Soil
             DBG:Info("Removing seeds and soil from inventory...")
             exports.vorp_inventory:closeInventory(src)
-            exports.vorp_inventory:subItem(src, plantCfg.seedName, plantCfg.seedAmount)
-            if plantCfg.soilRequired then
-                exports.vorp_inventory:subItem(src, plantCfg.soilName, plantCfg.soilAmount)
+            
+            -- [[ แก้ไขใหม่: หักเมล็ดพร้อมแจ้งเตือน ]]
+            local successSeed = exports.vorp_inventory:subItem(src, plantCfg.seedName, plantCfg.seedAmount)
+            if successSeed then
+                -- แจ้งเตือนเสียเมล็ด (Removed - สีแดง)
+                -- ใช้ชื่อ label จาก Config หรือใช้ชื่อ Spawn code ถ้าไม่มี label
+                local label = plantCfg.label or plantCfg.seedName
+                NotifyItemClient(src, "Removed", label, plantCfg.seedAmount, plantCfg.seedName, 3000, "#F44336")
             end
+
+            -- [[ แก้ไขใหม่: หักดินพร้อมแจ้งเตือน ]]
+            if plantCfg.soilRequired then
+                local successSoil = exports.vorp_inventory:subItem(src, plantCfg.soilName, plantCfg.soilAmount)
+                if successSoil then
+                    NotifyItemClient(src, "Removed", plantCfg.soilName, plantCfg.soilAmount, plantCfg.soilName, 3000, "#F44336")
+                end
+            end
+            
             DBG:Success("Seeds and soil (if required) removed")
 
             -- Find Best Fertilizer

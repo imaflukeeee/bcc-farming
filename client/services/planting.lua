@@ -116,8 +116,8 @@ RegisterNetEvent('bcc-farming:PlantingCrop', function(plantData, bestFertilizer,
     DBG:Info('Planting process started')
 
     -- เริ่มอนิเมชั่นพรวนดิน
-    Notify(_U('raking'), "info", 16000)
-    PlayAnim('amb_work@world_human_farmer_rake@male_a@idle_a', 'idle_a', 16000, true, true)
+    Notify(_U('raking'), "info", 5000)
+    PlayAnim('amb_work@world_human_farmer_rake@male_a@idle_a', 'idle_a', 5000, true, true)
 
     -- ตรวจสอบว่าผู้เล่นตายระหว่างอนิเมชั่นหรือไม่
     if IsEntityDead(playerPed) then

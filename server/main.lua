@@ -266,7 +266,10 @@ RegisterNetEvent('bcc-farming:AddPlant', function(plantData, plantCoords)
             if successRemove then
                 isWatered = 'true'
                 waterFound = true
-                NotifyClient(src, _U('waterPlant'), "success", 3000)
+                -- NotifyClient(src, _U('waterPlant'), "success", 3000) -- OLD
+                -- NEW: mtn_notify sendItem (Red for Removed)
+                -- ใช้คำว่า "Removed" เวลาเสียถังน้ำ (สีแดง)
+                NotifyItemClient(src, "Removed", waterItem.label, 1, waterItem.name, 3000, "#F44336")
                 break
             end
         end
@@ -488,6 +491,10 @@ Core.Callback.Register('bcc-farming:ManagePlantWateredStatus', function(source, 
                 if not successRemove then
                     DBG:Error('Failed to remove watering bucket for source: ' .. tostring(src))
                     return cb(false)
+                else
+                    -- NEW: mtn_notify sendItem (Red for Removed)
+                    -- ใช้คำว่า "Removed" เวลาเสียถังน้ำ (สีแดง)
+                    NotifyItemClient(src, "Removed", waterItem.label, 1, waterItem.name, 3000, "#F44336")
                 end
             else
                 -- Persist remaining uses on the bucket
@@ -597,7 +604,10 @@ Core.Callback.Register('bcc-farming:HarvestCheck', function(source, cb, plantId,
             if not success then
                 DBG:Warning('Failed to add item to inventory for source: ' .. tostring(src) .. ', item: ' .. item.itemName)
             else
-                NotifyClient(src, _U('harvested') .. item.amount .. ' ' .. item.itemLabel, "success", 4000)
+                -- NotifyClient(src, _U('harvested') .. item.amount .. ' ' .. item.itemLabel, "success", 4000) -- OLD
+                -- NEW: mtn_notify sendItem (Green for Received)
+                -- ใช้คำว่า "Added" เวลาได้รับไอเทม (สีเขียว)
+                NotifyItemClient(src, "Added", item.itemLabel, item.amount, item.itemName, 4000, "#4CAF50")
                 DBG:Success('Successfully added item to inventory for source: ' .. tostring(src) .. ', item: ' .. item.itemName)
             end
         end
@@ -612,6 +622,13 @@ Core.Callback.Register('bcc-farming:HarvestCheck', function(source, cb, plantId,
     end
 
     DBG:Success('Successfully deleted plant with ID: ' .. tostring(plantId) .. ' from database')
+
+    -- [[ เพิ่มตรงนี้: ตรวจสอบถ้าเป็นการ Destroy ให้แจ้งเตือน Removed ]]
+    if destroy then
+        -- เรียกใช้ NotifyClient เพื่อแสดงแจ้งเตือนแบบข้อความ (mtn_notify:send)
+        -- สีแดง (error) ที่ตำแหน่ง Middle-Right
+        NotifyClient(src, "Removed " .. (plantData.plantName or "Plant"), "error", 3000)
+    end
 
     TriggerClientEvent('bcc-farming:MaxPlantsAmount', src, -1)
     TriggerClientEvent('bcc-farming:RemovePlantClient', -1, plantId)
@@ -644,6 +661,9 @@ RegisterNetEvent('bcc-farming:RemoveFertilizer', function(fertilizerName)
         -- Remove 1 fertilizer from inventory
         local success = exports.vorp_inventory:subItem(src, fertilizerName, 1)
         if success then
+            -- [[ เพิ่ม: แจ้งเตือนว่าเสียปุ๋ย (Removed - สีแดง) ]]
+            NotifyItemClient(src, "Removed", fertilizerName, 1, fertilizerName, 3000, "#F44336")
+
             DBG:Success('Successfully removed 1 of ' .. fertilizerName .. ' from inventory for source: ' .. tostring(src))
         else
             DBG:Warning('Failed to remove 1 of ' .. fertilizerName .. ' from inventory for source: ' .. tostring(src))
