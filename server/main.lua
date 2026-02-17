@@ -876,3 +876,49 @@ end)
 BccUtils.Versioner.checkFile(GetCurrentResourceName(), 'https://github.com/BryceCanyonCounty/bcc-farming')
 
 exports('GetPlayerHouses', GetPlayerHouses)
+
+-- =============================================================
+--  FARMING TRACKER SERVER LOGIC
+-- =============================================================
+
+-- รับคำขอข้อมูลพืชของผู้เล่น
+RegisterNetEvent('bcc-farming:RequestMyPlants', function()
+    local src = source
+    local user = Core.getUser(src)
+    if not user then return end
+    
+    local character = user.getUsedCharacter
+    if not character then return end
+    
+    local charId = character.charIdentifier
+    local myPlants = {}
+    
+    -- วนลูปหาพืชทั้งหมดในเซิร์ฟเวอร์
+    for _, plant in pairs(AllPlants) do
+        -- เช็คว่าเป็นของคนนี้หรือไม่
+        if plant.plant_owner == charId then
+            local plantLabel = plant.plant_type -- ชื่อ Default (ชื่อ Seed)
+            local maxGrowthTime = 900 -- ค่า Default 15 นาที
+            
+            -- ค้นหาชื่อจริงและเวลาเติบโตจาก Config
+            for _, cfg in pairs(Plants) do
+                if cfg.seedName == plant.plant_type then
+                    -- ใช้ plantName หรือ Label ถ้ามี
+                    plantLabel = cfg.plantName or cfg.label or plant.plant_type
+                    maxGrowthTime = cfg.timeToGrow or 900
+                    break
+                end
+            end
+
+            table.insert(myPlants, {
+                id = plant.plant_id,
+                label = plantLabel,
+                timeLeft = tonumber(plant.time_left),
+                growthTime = tonumber(maxGrowthTime)
+            })
+        end
+    end
+    
+    -- ส่งข้อมูลกลับไปหา Client คนนั้น
+    TriggerClientEvent('bcc-farming:ReceiveMyPlants', src, myPlants)
+end)

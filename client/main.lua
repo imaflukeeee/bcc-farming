@@ -1,3 +1,7 @@
+local isTrackerOpen = true 
+local lastPlantCount = 0
+local isCursorActive = false
+
 --RegisterNetEvent('vorp:SelectedCharacter', function()
 CreateThread(function()
     TriggerServerEvent('bcc-farming:NewClientConnected')
@@ -196,4 +200,118 @@ AddEventHandler('onResourceStart', function(resourceName)
       return
     end
     TriggerServerEvent('bcc-farming:NewClientConnected')
+end)
+
+-- =============================================================
+--  FARMING TRACKER UI LOGIC (UPDATED)
+-- =============================================================
+-- ฟังก์ชันช่วยเปิด/ปิด NUI
+local function ToggleNuiState(state)
+    isTrackerOpen = state
+    SendNUIMessage({
+        action = "toggleTracker",
+        show = state
+    })
+end
+
+-- คำสั่งเปิด/ปิด Tracker แบบ Manual (/farmtracker)
+RegisterCommand("farmtracker", function()
+    -- เงื่อนไข: ต้องมีพืชอยู่อย่างน้อย 1 ต้น ถึงจะกดเปิด/ปิดได้
+    if lastPlantCount > 0 then
+        -- สลับสถานะ (เปิด -> ปิด, ปิด -> เปิด)
+        ToggleNuiState(not isTrackerOpen)
+        
+        -- ถ้าสั่งเปิด ให้ขอข้อมูลใหม่ทันทีเพื่อความชัวร์
+        if isTrackerOpen then
+            TriggerServerEvent('bcc-farming:RequestMyPlants')
+        end
+    else
+        -- กรณีไม่มีพืช แจ้งเตือนผู้เล่น
+        Notify("ไม่พบข้อมูลพืชของคุณ", "error", 3000)
+        
+        -- ถ้ามันเปิดค้างอยู่ (กรณีบั๊ก) สั่งปิดทันที
+        if isTrackerOpen then
+            ToggleNuiState(false)
+        end
+    end
+end)
+
+-- Callback จาก NUI เมื่อกดปุ่มปิด X
+RegisterNUICallback('closeTracker', function(data, cb)
+    ToggleNuiState(false)
+    cb('ok')
+end)
+
+-- รับข้อมูลรายการพืชจาก Server เพื่อประมวลผล
+RegisterNetEvent('bcc-farming:ReceiveMyPlants', function(plantsData)
+    local currentCount = plantsData and #plantsData or 0
+    
+    -- [[ Logic เปิด/ปิด อัตโนมัติ ]]
+    
+    -- กรณีที่ 1: เริ่มปลูกต้นแรก (จำนวนเปลี่ยนจาก 0 -> มากกว่า 0)
+    -- ระบบจะเปิด UI ให้อัตโนมัติ
+    if lastPlantCount == 0 and currentCount > 0 then
+        ToggleNuiState(true)
+    end
+
+    -- กรณีที่ 2: เก็บเกี่ยวหมดเกลี้ยง (จำนวนเปลี่ยนจาก มากกว่า 0 -> 0)
+    -- ระบบจะปิด UI ให้อัตโนมัติ
+    if lastPlantCount > 0 and currentCount == 0 then
+        ToggleNuiState(false)
+    end
+
+    -- อัปเดตจำนวนพืชล่าสุดเก็บไว้เปรียบเทียบรอบหน้า
+    lastPlantCount = currentCount
+
+    -- ส่งข้อมูลไปอัปเดต UI (เฉพาะตอนที่เปิดอยู่)
+    if isTrackerOpen then
+        SendNUIMessage({
+            action = "updateTracker",
+            plants = plantsData
+        })
+    end
+end)
+
+-- Loop ทำงานตลอดเวลาเพื่อเช็คจำนวนพืช (ทุก 1 วินาที)
+CreateThread(function()
+    Wait(2000) -- รอโหลดสคริปต์เสร็จ
+    
+    while true do
+        Wait(1000)
+        -- ขอข้อมูลตลอดเวลาเพื่อให้ Client รู้สถานะปัจจุบัน (0 หรือ มีต้นไม้)
+        -- เพื่อใช้ตัดสินใจในการ Auto Open/Close และอนุญาตให้ใช้คำสั่ง
+        TriggerServerEvent('bcc-farming:RequestMyPlants')
+    end
+end)
+
+CreateThread(function()
+    while true do
+        Wait(10) -- เช็คทุก 10ms (ไม่ต้องถี่มาก)
+        
+        -- ทำงานเฉพาะตอนที่ Tracker เปิดอยู่เท่านั้น
+        if isTrackerOpen then
+            -- เช็คว่ากดปุ่ม Left Alt (0x8AAA0AD4) อยู่หรือไม่
+            -- ใช้ IsDisabledControlPressed เพื่อให้เช็คได้แม้ตอน NUI Focus ทำงานอยู่
+            if IsDisabledControlPressed(0, 0x8AAA0AD4) then
+                if not isCursorActive then
+                    SetNuiFocus(true, true) -- เปิดเมาส์ + คีย์บอร์ด NUI
+                    SetNuiFocusKeepInput(true) -- อนุญาตให้กดเดิน/ขยับกล้องได้ (ถ้าต้องการ)
+                    isCursorActive = true
+                end
+            else
+                -- ถ้าปล่อยปุ่ม Alt แล้วเมาส์ยังค้างอยู่ ให้ปิด
+                if isCursorActive then
+                    SetNuiFocus(false, false) -- ปิดเมาส์
+                    SetNuiFocusKeepInput(false)
+                    isCursorActive = false
+                end
+            end
+        else
+            -- ถ้า Tracker ปิดอยู่ แต่เมาส์ค้าง (เผื่อกรณีบั๊ก) ให้ปิดทิ้ง
+            if isCursorActive then
+                SetNuiFocus(false, false)
+                isCursorActive = false
+            end
+        end
+    end
 end)

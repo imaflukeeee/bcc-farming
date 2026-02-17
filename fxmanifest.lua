@@ -6,6 +6,14 @@ lua54 'yes'
 author 'BCC Team'
 description 'bcc-farming'
 
+ui_page 'html/ui.html'
+
+files {
+    'html/ui.html',
+    'html/style.css',
+    'html/script.js'
+}
+
 shared_scripts {
     'configs/*.lua',
     'locale.lua',
