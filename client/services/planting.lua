@@ -1,35 +1,20 @@
-local PlantingProcess = false
-
--- ไม่จำเป็นต้องใช้ StartPrompts หรือตัวแปร Prompt แล้ว เพราะเราทำเป็นอัตโนมัติ
+local ProgressBar = exports.vorp_progressbar:initiate()
 
 RegisterNetEvent('bcc-farming:PlantingCrop', function(plantData, bestFertilizer, houseLocks)
-    DBG:Info('PlantingCrop event triggered')
-    
-    -- ตรวจสอบข้อมูลเบื้องต้น
-    if not plantData then
-        DBG:Error('Invalid plantData received')
-        return
-    end
-
     local playerPed = PlayerPedId()
-    if not DoesEntityExist(playerPed) or IsEntityDead(playerPed) then
-        DBG:Error('Player ped is invalid or dead')
-        return
-    end
-
-    local playerCoords = GetEntityCoords(playerPed)
-    HidePedWeapons(playerPed, 2, true)
-
+    local pc = GetEntityCoords(playerPed)
+    
+    -- [[ 1. ตรวจสอบเงื่อนไขต่างๆ (Lock / House / Proximity) ]] --
     local placementHeading
     local withinLock = false
     local lockRequired = plantData.lockCoords and type(plantData.coordsLocks) == 'table' and next(plantData.coordsLocks)
     local withinHouseRadius = false
 
-    -- ตรวจสอบความเป็นเจ้าของบ้าน (House Ownership)
+    -- Check House Ownership
     if Config.plantSetup.requireHouseOwnership and type(houseLocks) == 'table' then
         for _, house in ipairs(houseLocks) do
             if house.x and house.y and house.z and house.radius then
-                local dist = #(playerCoords - vector3(house.x, house.y, house.z))
+                local dist = #(pc - vector3(house.x, house.y, house.z))
                 if dist <= (house.radius or 0.0) then
                     withinHouseRadius = true
                     break
@@ -38,7 +23,7 @@ RegisterNetEvent('bcc-farming:PlantingCrop', function(plantData, bestFertilizer,
         end
     end
 
-    -- ตรวจสอบพิกัดที่ล็อคไว้ (Locked Coords)
+    -- Check Locked Coords
     if lockRequired then
         local baseRadius = plantData.coordsLockRange or 2.5
         local radiusPadding = plantData.coordsLockTolerance or 0.0
@@ -71,7 +56,7 @@ RegisterNetEvent('bcc-farming:PlantingCrop', function(plantData, bestFertilizer,
 
             if lx and ly and lz then
                 local lockVector = vector3(lx, ly, lz)
-                local distance = #(lockVector - playerCoords)
+                local distance = #(lockVector - pc)
                 local allowedRadius = (lradius or baseRadius) + radiusPadding
                 if distance <= allowedRadius then
                     withinLock = true
@@ -82,7 +67,7 @@ RegisterNetEvent('bcc-farming:PlantingCrop', function(plantData, bestFertilizer,
         end
     end
 
-    -- แจ้งเตือนหากไม่อยู่ในจุดที่กำหนด
+    -- Validation Alerts
     if lockRequired and not withinLock and not withinHouseRadius then
         Notify(_U('mustUseLockedSpot'), "error", 4000)
         TriggerServerEvent('bcc-farming:ReturnItems', plantData.seedName, plantData.seedAmount, plantData.soilRequired, plantData.soilName, plantData.soilAmount)
@@ -95,9 +80,9 @@ RegisterNetEvent('bcc-farming:PlantingCrop', function(plantData, bestFertilizer,
         return
     end
 
-    -- ตรวจสอบต้นไม้อื่นๆ ใกล้เคียง
+    -- Check nearby plants
     for _, plantCfg in pairs(Plants) do
-        local entity = GetClosestObjectOfType(playerCoords.x, playerCoords.y, playerCoords.z, plantData.plantingDistance, joaat(plantCfg.plantProp), false, false, false)
+        local entity = GetClosestObjectOfType(pc.x, pc.y, pc.z, plantData.plantingDistance, joaat(plantCfg.plantProp), false, false, false)
         if entity ~= 0 then
             Notify(_U('tooCloseToAnotherPlant'), "error", 4000)
             TriggerServerEvent('bcc-farming:ReturnItems', plantData.seedName, plantData.seedAmount, plantData.soilRequired, plantData.soilName, plantData.soilAmount)
@@ -105,56 +90,72 @@ RegisterNetEvent('bcc-farming:PlantingCrop', function(plantData, bestFertilizer,
         end
     end
 
-    -- ป้องกันการปลูกซ้ำซ้อน
-    if PlantingProcess then
-        Notify(_U('FinishPlantingProcessFirst'), "error", 4000)
-        TriggerServerEvent('bcc-farming:ReturnItems', plantData.seedName, plantData.seedAmount, plantData.soilRequired, plantData.soilName, plantData.soilAmount)
-        return
-    end
-
-    PlantingProcess = true
-    DBG:Info('Planting process started')
-
-    -- เริ่มอนิเมชั่นพรวนดิน
-    Notify(_U('raking'), "info", 5000)
-    PlayAnim('amb_work@world_human_farmer_rake@male_a@idle_a', 'idle_a', 5000, true, true)
-
-    -- ตรวจสอบว่าผู้เล่นตายระหว่างอนิเมชั่นหรือไม่
-    if IsEntityDead(playerPed) then
-        Notify(_U('failed'), "error", 4000)
-        PlantingProcess = false
-        TriggerServerEvent('bcc-farming:ReturnItems', plantData.seedName, plantData.seedAmount, plantData.soilRequired, plantData.soilName, plantData.soilAmount)
-        return
-    end
-
-    -- หักเครื่องมือปลูก (ถ้ามี)
-    if plantData.plantingToolRequired then
-        DBG:Info('Sending tool usage data')
-        TriggerServerEvent('bcc-farming:PlantToolUsage', plantData)
-    end
-
-    -- [[ AUTO FERTILIZER LOGIC ]] 
-    -- ใส่ปุ๋ยให้อัตโนมัติถ้ามี bestFertilizer ส่งมา (ไม่ต้องรอ Prompt)
-    if plantData.fertilizer ~= false and bestFertilizer then
-        plantData.timeToGrow = math.floor(plantData.timeToGrow - (bestFertilizer.fertTimeReduction * plantData.timeToGrow))
-        TriggerServerEvent('bcc-farming:RemoveFertilizer', bestFertilizer.fertName)
-        Notify(_U('fertilize') .. ": " .. bestFertilizer.fertName, "success", 3000)
-    end
+    -- [[ 2. เริ่มกระบวนการปลูก (One-Time Progress Bar with Animation Switching) ]] --
     
-    Notify(_U('plantingDone'), "success", 4000)
-
-    -- ส่งข้อมูลกลับไป Server เพื่อสร้างต้นไม้ (และ Server จะจัดการรดน้ำให้ต่อ)
-    DBG:Info('Planting crop at final location')
-    local x, y, z = table.unpack(GetOffsetFromEntityInWorldCoords(PlayerPedId(), 0.0, 0.75, 0.0))
-    local plantCoords = {
-        x = x,
-        y = y,
-        z = z
-    }
-    if placementHeading then
-        plantCoords.w = placementHeading
+    local forward = GetEntityForwardVector(playerPed)
+    local x, y, z = table.unpack(pc + forward * 0.8)
+    
+    local groundZ
+    local foundGround, zPos = GetGroundZFor_3dCoord(x, y, z, false)
+    if foundGround then
+        groundZ = zPos
+    else
+        groundZ = z - 0.98
     end
-    TriggerServerEvent('bcc-farming:AddPlant', plantData, plantCoords)
 
-    PlantingProcess = false
+    local finalCoords = vector3(x, y, groundZ)
+    local heading = GetEntityHeading(playerPed)
+    
+    if placementHeading then
+        heading = placementHeading
+    end
+
+    local progressTime = 12000 -- รวม 12 วินาที
+    local switchTime = 6000   -- เปลี่ยนท่าตอนวินาทีที่ 6
+    local isPlantingActive = true -- ตัวแปรเช็คสถานะ
+
+    -- Thread สำหรับจัดการ Animation (ทำงานแยกกับ ProgressBar)
+    Citizen.CreateThread(function()
+        -- Phase 1: พรวนดิน (Rake)
+        TaskStartScenarioInPlace(playerPed, GetHashKey('WORLD_HUMAN_FARMER_RAKE'), -1, true, false, false, false)
+        
+        -- รอ 6 วินาที
+        Citizen.Wait(switchTime)
+
+        -- ถ้ายังปลูกอยู่และไม่ตาย ให้เปลี่ยนเป็นท่ารดน้ำ
+        if isPlantingActive and not IsEntityDead(playerPed) then
+            -- Phase 2: รดน้ำ (Water)
+            ClearPedTasksImmediately(playerPed) -- ล้างท่าถือจอบออกก่อน
+            TaskStartScenarioInPlace(playerPed, GetHashKey('WORLD_HUMAN_BUCKET_POUR_LOW'), -1, true, false, false, false)
+        end
+    end)
+
+    -- เริ่มหลอดโหลดเดียว ยาว 12 วินาที
+    ProgressBar.start("กำลังปลูกพืช...", progressTime, function()
+        isPlantingActive = false -- หยุด logic ใน Thread (ถ้ามี)
+        
+        ClearPedTasksImmediately(playerPed)
+
+        if IsEntityDead(playerPed) then
+            Notify(_U('failed'), "error", 4000)
+            TriggerServerEvent('bcc-farming:ReturnItems', plantData.seedName, plantData.seedAmount, plantData.soilRequired, plantData.soilName, plantData.soilAmount)
+            return
+        end
+
+        -- หักเครื่องมือ (ถ้ามี)
+        if plantData.plantingToolRequired then
+            TriggerServerEvent('bcc-farming:PlantToolUsage', plantData)
+        end
+
+        -- ใส่ปุ๋ยออโต้
+        if plantData.fertilizer ~= false and bestFertilizer then
+            plantData.timeToGrow = math.floor(plantData.timeToGrow - (bestFertilizer.fertTimeReduction * plantData.timeToGrow))
+            TriggerServerEvent('bcc-farming:RemoveFertilizer', bestFertilizer.fertName)
+        end
+
+        -- ส่งข้อมูลไป Server
+        local coordsToSend = { x = finalCoords.x, y = finalCoords.y, z = finalCoords.z, w = heading }
+        TriggerServerEvent('bcc-farming:AddPlant', plantData, coordsToSend)
+        Notify("คุณปลูกพืชสำเร็จ", "success", 4000)
+    end, 'linear')
 end)
