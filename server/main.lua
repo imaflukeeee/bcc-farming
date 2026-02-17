@@ -266,9 +266,7 @@ RegisterNetEvent('bcc-farming:AddPlant', function(plantData, plantCoords)
             if successRemove then
                 isWatered = 'true'
                 waterFound = true
-                -- NotifyClient(src, _U('waterPlant'), "success", 3000) -- OLD
                 -- NEW: mtn_notify sendItem (Red for Removed)
-                -- ใช้คำว่า "Removed" เวลาเสียถังน้ำ (สีแดง)
                 NotifyItemClient(src, "Removed", waterItem.label, 1, waterItem.name, 3000, "#F44336")
                 break
             end
@@ -733,6 +731,20 @@ CreateThread(function()
         Wait(1000)
         local timeLeft
 
+        -- [[ 1. เช็คผู้เล่นที่ออนไลน์ ]]
+        -- สร้าง Map ของ Character Identifier ที่ออนไลน์อยู่ในขณะนั้น
+        local onlineChars = {}
+        local players = GetPlayers()
+        for _, src in ipairs(players) do
+            local user = Core.getUser(tonumber(src))
+            if user then
+                local char = user.getUsedCharacter
+                if char and char.charIdentifier then
+                    onlineChars[char.charIdentifier] = true
+                end
+            end
+        end
+
         -- Fetch all plants from the database
         local allPlants = MySQL.query.await('SELECT * FROM `bcc_farming`')
         if not allPlants then
@@ -756,8 +768,12 @@ CreateThread(function()
 
                 timeLeft = tonumber(plant.time_left)
 
-                -- Only process watered plants with time left
-                if plant.plant_watered == 'true' and timeLeft > 0 then
+                -- [[ 2. เช็คว่าเจ้าของต้นไม้ Online อยู่หรือไม่ ]]
+                local isOwnerOnline = onlineChars[plant.plant_owner]
+
+                -- Only process watered plants with time left AND owner is online
+                -- เพิ่มเงื่อนไข `and isOwnerOnline` เข้าไป
+                if plant.plant_watered == 'true' and timeLeft > 0 and isOwnerOnline then
                     local newTime = timeLeft - 1
                     --DBG:Info('Updating plant ID: ' .. tostring(plant.plant_id) .. ', time left: ' .. tostring(newTime))
 

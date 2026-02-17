@@ -183,3 +183,17 @@ AddEventHandler('onResourceStop', function(resourceName)
 
     ClearPedTasksImmediately(PlayerPedId())
 end)
+
+-- เมื่อผู้เล่นเลือกตัวละครเสร็จ ให้เรียกขอข้อมูลต้นไม้จาก Server
+RegisterNetEvent("vorp:SelectedCharacter")
+AddEventHandler("vorp:SelectedCharacter", function(charid)
+    TriggerServerEvent('bcc-farming:NewClientConnected')
+end)
+
+-- (Option เสริม) สำหรับตอน Restart Script แล้วให้ต้นไม้ขึ้นทันทีโดยไม่ต้องออกเข้าใหม่
+AddEventHandler('onResourceStart', function(resourceName)
+    if (GetCurrentResourceName() ~= resourceName) then
+      return
+    end
+    TriggerServerEvent('bcc-farming:NewClientConnected')
+end)
