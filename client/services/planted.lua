@@ -9,7 +9,7 @@ local HarvestGroup = GetRandomIntInRange(0, 0xffffff)
 local PromptsStarted = false
 local Crops = {}
 
--- [[ 1. เพิ่มฟังก์ชันหาพืชที่ใกล้ที่สุด ]] --
+-- [[ 1. เพิ่มฟังก์ชันหาพืชที่ใกล้ที่สุด (ป้องกันการกดทีเดียวเก็บทุกต้น) ]]
 local function GetClosestCropId(playerCoords)
     local closestId = nil
     local closestDist = 9999.0
@@ -27,83 +27,16 @@ local function GetClosestCropId(playerCoords)
 end
 
 local function StartPrompts()
-    DBG:Info('Starting water and harvest prompts...')
-    if PromptsStarted then
-        DBG:Success('Prompts are already started')
-        return true
-    end
+    -- [[ 2. สั่งปิดการสร้าง Prompt ตรงนี้ ]]
+    return true 
 
-    if not WaterGroup or not HarvestGroup then
-        DBG:Error('Prompt groups are not initialized')
-        return false
-    end
-
-    if not Config.keys or not Config.keys.water or not Config.keys.harvest or not Config.keys.destroy then
-        DBG:Error('Required keys are not defined in config')
-        return false
-    end
-
-    -- Create water-related prompts
-    WaterPrompt = UiPromptRegisterBegin()
-    DBG:Info('Creating WaterPrompt...')
-    if not WaterPrompt or WaterPrompt == 0 then
-        DBG:Error('Failed to register WaterPrompt')
-        return false
-    end
-    UiPromptSetControlAction(WaterPrompt, Config.keys.water)
-    UiPromptSetText(WaterPrompt, CreateVarString(10, 'LITERAL_STRING', _U('useBucket')))
-    UiPromptSetVisible(WaterPrompt, true)
-    UiPromptSetEnabled(WaterPrompt, true)
-    UiPromptSetHoldMode(WaterPrompt, 2000)
-    UiPromptSetGroup(WaterPrompt, WaterGroup, 0)
-    UiPromptRegisterEnd(WaterPrompt)
-
-    DestroyPromptWG = UiPromptRegisterBegin()
-    DBG:Info('Creating DestroyPromptWG...')
-    if not DestroyPromptWG or DestroyPromptWG == 0 then
-        DBG:Error('Failed to register DestroyPromptWG')
-        return false
-    end
-    UiPromptSetControlAction(DestroyPromptWG, Config.keys.destroy)
-    UiPromptSetText(DestroyPromptWG, CreateVarString(10, 'LITERAL_STRING', _U('destroyPlant')))
-    UiPromptSetVisible(DestroyPromptWG, true)
-    UiPromptSetEnabled(DestroyPromptWG, true)
-    UiPromptSetHoldMode(DestroyPromptWG, 2000)
-    UiPromptSetGroup(DestroyPromptWG, WaterGroup, 0)
-    UiPromptRegisterEnd(DestroyPromptWG)
-
-    -- Create harvest-related prompts
-    HarvestPrompt = UiPromptRegisterBegin()
-    DBG:Info('Creating HarvestPrompt...')
-    if not HarvestPrompt or HarvestPrompt == 0 then
-        DBG:Error('Failed to register HarvestPrompt')
-        return false
-    end
-    UiPromptSetControlAction(HarvestPrompt, Config.keys.harvest)
-    UiPromptSetText(HarvestPrompt, CreateVarString(10, 'LITERAL_STRING', _U('harvest')))
-    UiPromptSetVisible(HarvestPrompt, true)
-    UiPromptSetEnabled(HarvestPrompt, true)
-    UiPromptSetHoldMode(HarvestPrompt, 2000)
-    UiPromptSetGroup(HarvestPrompt, HarvestGroup, 0)
-    UiPromptRegisterEnd(HarvestPrompt)
-
-    DestroyPromptHG = UiPromptRegisterBegin()
-    DBG:Info('Creating DestroyPromptHG...')
-    if not DestroyPromptHG or DestroyPromptHG == 0 then
-        DBG:Error('Failed to register DestroyPromptHG')
-        return false
-    end
-    UiPromptSetControlAction(DestroyPromptHG, Config.keys.destroy)
-    UiPromptSetText(DestroyPromptHG, CreateVarString(10, 'LITERAL_STRING', _U('destroyPlant')))
-    UiPromptSetVisible(DestroyPromptHG, true)
-    UiPromptSetEnabled(DestroyPromptHG, true)
-    UiPromptSetHoldMode(DestroyPromptHG, 2000)
-    UiPromptSetGroup(DestroyPromptHG, HarvestGroup, 0)
-    UiPromptRegisterEnd(DestroyPromptHG)
-
-    PromptsStarted = true
-    DBG:Success('All prompts started successfully')
-    return true
+    -- โค้ดเดิมข้างล่างนี้จะไม่ทำงาน
+    -- DBG:Info('Starting water and harvest prompts...')
+    -- if PromptsStarted then
+    --     DBG:Success('Prompts are already started')
+    --     return true
+    -- end
+    -- ...
 end
 
 local function LoadModel(model, modelName)
@@ -246,35 +179,32 @@ RegisterNetEvent('bcc-farming:PlantPlanted', function(plantId, plantData, plantC
         local dist = #(playerCoords - vector3(plantCoords.x, plantCoords.y, plantCoords.z))
 
         if dist <= 1.5 then
-            -- [[ 2. แก้ไข Logic: เช็คว่าเป็นต้นที่ใกล้ที่สุดหรือไม่ ]]
+            -- [[ 3. แก้ไข Logic: เช็คว่าเป็นต้นที่ใกล้ที่สุดหรือไม่ก่อนทำงาน ]]
             if GetClosestCropId(playerCoords) == plantId then
                 sleep = 0
 
                 -- Handle watered plants
                 if tostring(Crops[plantId].watered) ~= 'false' then
                     if tonumber(timeLeft) > 0 then
-                        UiPromptSetEnabled(HarvestPrompt, false)
-                        local minutes = math.floor(timeLeft / 60)
-                        local seconds = timeLeft % 60
-                        local noHarvest = _U('plant') .. ': ' .. plantData.plantName..' | ' .. _U('secondsUntilharvest')..string.format('%02d:%02d', minutes, seconds)
-                        UiPromptSetActiveGroupThisFrame(HarvestGroup, CreateVarString(10, 'LITERAL_STRING', noHarvest), 1, 0, 0, 0)
+                        -- ช่วงรอโต (ปิด Prompt ทิ้ง)
+                        -- UiPromptSetEnabled(HarvestPrompt, false)
+                        -- UiPromptSetActiveGroupThisFrame(HarvestGroup, ...)
 
-                    -- Handle harvest prompt
+                    -- Handle harvest
                     elseif tonumber(timeLeft) <= 0 then
-                        UiPromptSetEnabled(HarvestPrompt, true)
-                        local harvest = _U('plant') .. ': ' .. plantData.plantName..' ' .. _U('secondsUntilharvestOver')
-                        UiPromptSetActiveGroupThisFrame(HarvestGroup, CreateVarString(10, 'LITERAL_STRING', harvest), 1, 0, 0, 0)
-
-                        if Citizen.InvokeNative(0xE0F65F0640EF0617, HarvestPrompt) then -- UiPromptHasHoldModeCompleted
-                            DBG:Info('Harvest prompt completed...')
+                        -- ช่วงเก็บเกี่ยว (ปิด Prompt ทิ้ง และใช้ IsControlJustPressed แทน)
+                        
+                        -- [[ ใช้ปุ่มกด Harvest (กดทีเดียว) ]]
+                        if IsControlJustPressed(0, Config.keys.harvest) then
+                            DBG:Info('Harvest key pressed...')
                             PlayAnim('mech_pickup@plant@berries', 'base', 2500, false, true)
                             Core.Callback.TriggerAwait('bcc-farming:HarvestCheck', plantId, plantData, false)
                         end
                     end
 
-                    -- Handle destroy prompt for watered plants
-                    if Citizen.InvokeNative(0xE0F65F0640EF0617, DestroyPromptHG) then -- UiPromptHasHoldModeCompleted
-                        DBG:Info('Destroy prompt completed...')
+                    -- [[ ใช้ปุ่มกด Destroy (สำหรับต้นที่รดน้ำแล้ว) ]]
+                    if IsControlJustPressed(0, Config.keys.destroy) then
+                        DBG:Info('Destroy key pressed...')
                         local canDestroy = Core.Callback.TriggerAwait('bcc-farming:HarvestCheck', plantId, plantData, true)
                         if canDestroy then
                             PlayAnim('amb_camp@world_camp_fire@stomp@male_a@wip_base', 'wip_base', 8000, false, true)
@@ -288,10 +218,12 @@ RegisterNetEvent('bcc-farming:PlantPlanted', function(plantId, plantData, plantC
                     if isRaining > 0 then
                         TriggerServerEvent('bcc-farming:UpdatePlantWateredStatus', plantId)
                     else
-                        UiPromptSetActiveGroupThisFrame(WaterGroup, CreateVarString(10, 'LITERAL_STRING', _U('waterPlant')), 1, 0, 0, 0)
+                        -- ปิด Prompt ทิ้ง
+                        -- UiPromptSetActiveGroupThisFrame(WaterGroup, ...)
 
-                        if Citizen.InvokeNative(0xE0F65F0640EF0617, WaterPrompt) then -- UiPromptHasHoldModeCompleted
-                            DBG:Info('Water prompt completed...')
+                        -- [[ ใช้ปุ่มกด Water (รดน้ำ) ]]
+                        if IsControlJustPressed(0, Config.keys.water) then
+                            DBG:Info('Water key pressed...')
                             local canWater = Core.Callback.TriggerAwait('bcc-farming:ManagePlantWateredStatus', plantId)
                             if canWater then
                                 ScenarioInPlace('WORLD_HUMAN_BUCKET_POUR_LOW', 5000)
@@ -300,8 +232,9 @@ RegisterNetEvent('bcc-farming:PlantPlanted', function(plantId, plantData, plantC
                             end
                         end
 
-                        if Citizen.InvokeNative(0xE0F65F0640EF0617, DestroyPromptWG) then -- UiPromptHasHoldModeCompleted
-                            DBG:Info('Destroy prompt completed...')
+                        -- [[ ใช้ปุ่มกด Destroy (สำหรับต้นยังไม่รดน้ำ) ]]
+                        if IsControlJustPressed(0, Config.keys.destroy) then
+                            DBG:Info('Destroy key pressed...')
                             local canDestroy = Core.Callback.TriggerAwait('bcc-farming:HarvestCheck', plantId, plantData, true)
                             if canDestroy then
                                 PlayAnim('amb_camp@world_camp_fire@stomp@male_a@wip_base', 'wip_base', 8000, false, true)
@@ -310,9 +243,9 @@ RegisterNetEvent('bcc-farming:PlantPlanted', function(plantId, plantData, plantC
                     end
                 end
             else
-                -- ถ้าอยู่ใกล้ (dist <= 1.5) แต่ไม่ใช่ต้นที่ใกล้ที่สุด ให้ลด sleep ลงเล็กน้อยเพื่อให้ระบบตอบสนองทันทีที่ขยับตัว
+                -- ถ้าไม่ใช่ต้นที่ใกล้ที่สุด ให้รอเล็กน้อย
                 sleep = 100
-            end -- [[ จบเงื่อนไขเช็คต้นที่ใกล้ที่สุด ]]
+            end -- จบเงื่อนไข GetClosestCropId
         end
         Wait(sleep)
     end
