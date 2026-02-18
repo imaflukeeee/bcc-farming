@@ -904,7 +904,7 @@ RegisterNetEvent('bcc-farming:RequestMyPlants', function()
             for _, cfg in pairs(Plants) do
                 if cfg.seedName == plant.plant_type then
                     -- ใช้ plantName หรือ Label ถ้ามี
-                    plantLabel = cfg.plantName or cfg.label or plant.plant_type
+                    plantLabel = cfg.plantNameUI or cfg.label or cfg.plantName or plant.plant_type
                     maxGrowthTime = cfg.timeToGrow or 900
                     break
                 end

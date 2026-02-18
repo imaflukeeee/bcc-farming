@@ -1,4 +1,6 @@
 local ProgressBar = exports.vorp_progressbar:initiate()
+local PromptsStarted = false
+local Crops = {}
 
 RegisterNetEvent('bcc-farming:PlantingCrop', function(plantData, bestFertilizer, houseLocks)
     local playerPed = PlayerPedId()
