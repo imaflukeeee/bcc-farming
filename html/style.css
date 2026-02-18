@@ -144,9 +144,10 @@ body {
 
 /* Footer */
 .tracker-footer {
-    font-size: 9px;
-    color: rgba(255, 255, 255, 0.4);
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.705);
     text-align: center;
+    font-weight: 400;
     padding: 6px;
     background: rgba(0, 0, 0, 0.1);
     border-top: 1px solid rgba(255, 255, 255, 0.05);
