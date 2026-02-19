@@ -571,6 +571,18 @@ Core.Callback.Register('bcc-farming:HarvestCheck', function(source, cb, plantId,
         return cb(false)
     end
 
+    -- =======================================================
+    -- [[ เพิ่มโค้ดป้องกันบัคตรงนี้: เช็คว่าต้นไม้ยังอยู่ใน DB หรือไม่ ]]
+    local checkPlant = MySQL.single.await('SELECT `plant_id` FROM `bcc_farming` WHERE `plant_id` = ?', { plantId })
+    if not checkPlant then
+        -- ถ้าหาไม่เจอ แสดงว่าต้นไม้เน่าเสียหรือถูกลบไปแล้ว ให้สั่งลบ Prop ทันที และยกเลิกการให้ไอเทม
+        TriggerClientEvent('bcc-farming:RemovePlantClient', -1, plantId) -- สั่งลบ Prop ออกจากหน้าจอทุกคน
+        TriggerClientEvent('bcc-farming:MaxPlantsAmount', src, -1) -- คืนโควต้าจำนวนปลูกให้ผู้เล่น
+        NotifyClient(src, "พืชต้นนี้เน่าเสียและสลายไปแล้ว!", "error", 4000)
+        return cb(false) -- เตะออกจากการทำรายการทันที ไม่แจกของ
+    end
+    -- =======================================================
+
     -- If not destroying, check if player can carry all rewards
     if not destroy then
         local itemsToAdd = {}
@@ -616,7 +628,7 @@ Core.Callback.Register('bcc-farming:HarvestCheck', function(source, cb, plantId,
 
     if not result or (result and result.affectedRows and result.affectedRows == 0) then
         DBG:Error('Failed to delete plant with ID: ' .. tostring(plantId) .. ' from database')
-        return cb(false)
+        -- return cb(false) -- เอาออกเพราะเราดักเช็คตั้งแต่แรกแล้ว และเผื่อกันเหนียวของได้ไปแล้วแต่ลบ DB ไม่ติด 
     end
 
     DBG:Success('Successfully deleted plant with ID: ' .. tostring(plantId) .. ' from database')
@@ -871,6 +883,8 @@ exports('GetPlayerHouses', GetPlayerHouses)
 -- =============================================================
 
 -- รับคำขอข้อมูลพืชของผู้เล่น
+-- [server/main.lua] จุดที่ 2: Event RequestMyPlants
+
 RegisterNetEvent('bcc-farming:RequestMyPlants', function()
     local src = source
     local user = Core.getUser(src)
@@ -882,7 +896,7 @@ RegisterNetEvent('bcc-farming:RequestMyPlants', function()
     local charId = character.charIdentifier
     local myPlants = {}
     
-    local currentTime = os.time() -- เวลาเซิฟเวอร์ปัจจุบัน
+    local currentTime = os.time() 
 
     for _, plant in pairs(AllPlants) do
         if plant.plant_owner == charId then
@@ -897,11 +911,11 @@ RegisterNetEvent('bcc-farming:RequestMyPlants', function()
                 end
             end
 
-            -- [[ เพิ่มใหม่: คำนวณเวลาเน่าเสีย ]]
+            -- [[ แก้ไขตรงนี้: การคำนวณเวลาเน่าเสีย ]]
             local rotTimeLeft = 0
             if Config.AutoDelete and Config.AutoDelete.Enabled and plant.plant_epoch then
-                -- เวลาที่ปลูก + อายุขัย(ชั่วโมง*3600) - เวลาปัจจุบัน
-                local expireTime = plant.plant_epoch + (Config.AutoDelete.LifeTimeHours * 3600)
+                -- สูตรใหม่: เอาเวลาปลูก + วินาทีได้เลย (ไม่ต้องคูณ 60 แล้ว)
+                local expireTime = plant.plant_epoch + Config.AutoDelete.LifeTimeSeconds
                 rotTimeLeft = expireTime - currentTime
             end
 
@@ -910,7 +924,7 @@ RegisterNetEvent('bcc-farming:RequestMyPlants', function()
                 label = plantLabel,
                 timeLeft = tonumber(plant.time_left),
                 growthTime = tonumber(maxGrowthTime),
-                rotTime = rotTimeLeft -- ส่งค่านี้ไปให้ UI
+                rotTime = rotTimeLeft 
             })
         end
     end
@@ -918,10 +932,7 @@ RegisterNetEvent('bcc-farming:RequestMyPlants', function()
     TriggerClientEvent('bcc-farming:ReceiveMyPlants', src, myPlants)
 end)
 
--- [server/main.lua] เพิ่มไว้ล่างสุดของไฟล์
-
 CreateThread(function()
-    -- รอให้ Script รันขึ้นมาสักพักก่อนเริ่มทำงาน
     Wait(10000)
 
     if not Config.AutoDelete or not Config.AutoDelete.Enabled then
@@ -930,30 +941,60 @@ CreateThread(function()
     end
 
     while true do
-        -- คำนวณช่วงเวลา (เปลี่ยนนาทีเป็นมิลลิวินาที)
-        local checkIntervalMs = Config.AutoDelete.CheckInterval * 60 * 1000
+        local checkIntervalMs = Config.AutoDelete.CheckIntervalSeconds * 1000
         
-        -- Query เพื่อลบข้อมูลที่เก่ากว่ากำหนด
-        -- หลักการ: ลบแถวที่ plant_time น้อยกว่า (เวลาปัจจุบัน - เวลาที่ตั้งไว้)
-        local affectedRows = MySQL.update.await(
-            'DELETE FROM `bcc_farming` WHERE `plant_time` < (NOW() - INTERVAL ? HOUR)', 
-            { Config.AutoDelete.LifeTimeHours }
+        -- 1. [แก้ไข] ค้นหาพืชที่เน่าเสีย และดึง `plant_owner` (เจ้าของ) มาด้วย
+        local expiredPlants = MySQL.query.await(
+            'SELECT `plant_id`, `plant_owner` FROM `bcc_farming` WHERE `plant_time` < (NOW() - INTERVAL ? SECOND)', 
+            { Config.AutoDelete.LifeTimeSeconds }
         )
 
-        if affectedRows and affectedRows > 0 then
-            DBG:Success('Auto Cleanup: Deleted ' .. affectedRows .. ' expired plants/crops.')
-            
-            -- บังคับให้ Client อัปเดตข้อมูล (ลบต้นไม้ที่เน่าแล้วออกจากหน้าจอ)
-            -- โดยการส่ง Event ให้ Client ลบต้นไม้ หรือ รอ Loop ปกติของ Script จัดการ
-            -- วิธีที่ง่ายที่สุดคือ Trigger ให้ทุกคนรู้ว่ามีการเปลี่ยนแปลง (Optional)
-            -- TriggerClientEvent('bcc-farming:RemovePlantClient', -1, plantId) <-- เนื่องจากเราลบแบบ Bulk อาจจะยากที่จะส่ง ID ทีละตัว
-            -- แต่ใน Script เดิม Client จะเช็ค distance ตลอดเวลา ถ้าหาไม่เจอใน DB เดี๋ยว Script หลักอาจจะ error ได้ 
-            -- ดังนั้นแนะนำให้ Restart Server เพื่อ Clear Object หรือ รอระบบ Sync ครั้งถัดไป
-        else
-            DBG:Info('Auto Cleanup: No expired plants found.')
+        if expiredPlants and #expiredPlants > 0 then
+            -- 2. ลบออกจาก Database
+            local affectedRows = MySQL.update.await(
+                'DELETE FROM `bcc_farming` WHERE `plant_time` < (NOW() - INTERVAL ? SECOND)', 
+                { Config.AutoDelete.LifeTimeSeconds }
+            )
+
+            if affectedRows and affectedRows > 0 then
+                DBG:Success('Auto Cleanup: Deleted ' .. affectedRows .. ' expired plants.')
+                
+                -- [[ เพิ่มใหม่: ค้นหาผู้เล่นที่ออนไลน์อยู่เพื่อส่งแจ้งเตือน ]]
+                local onlineChars = {}
+                local players = GetPlayers()
+                for _, src in ipairs(players) do
+                    local user = Core.getUser(tonumber(src))
+                    if user then
+                        local char = user.getUsedCharacter
+                        if char and char.charIdentifier then
+                            onlineChars[char.charIdentifier] = tonumber(src)
+                        end
+                    end
+                end
+
+                -- 3. จัดการลบ Prop และแจ้งเตือน
+                for _, plant in ipairs(expiredPlants) do
+                    -- สั่งลบ Prop ออกจากหน้าจอทุกคนทันที
+                    TriggerClientEvent('bcc-farming:RemovePlantClient', -1, plant.plant_id)
+                    
+                    -- [[ เพิ่มใหม่: ถ้าเจ้าของพืชออนไลน์อยู่ ให้ส่งแจ้งเตือนและคืนโควต้าปลูกให้ ]]
+                    local ownerSrc = onlineChars[plant.plant_owner]
+                    if ownerSrc then
+                        NotifyClient(ownerSrc, "พืชของคุณเน่าเสียและสลายไปแล้ว!", "error", 5000)
+                        TriggerClientEvent('bcc-farming:MaxPlantsAmount', ownerSrc, -1)
+                    end
+
+                    -- เอาออกจากหน่วยความจำของ Server
+                    for i, p in ipairs(AllPlants) do
+                        if p.plant_id == plant.plant_id then
+                            table.remove(AllPlants, i)
+                            break
+                        end
+                    end
+                end
+            end
         end
 
-        -- รอจนกว่าจะถึงรอบตรวจถัดไป
         Wait(checkIntervalMs)
     end
 end)

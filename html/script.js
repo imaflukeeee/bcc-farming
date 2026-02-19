@@ -74,28 +74,38 @@ function updatePlantList(plants) {
     let container = $("#plant-list");
     container.empty();
 
+    // 1. ถ้าไม่มีพืชเลยในระบบ ให้ซ่อนหน้าต่าง UI ทันที
     if (!plants || plants.length === 0) {
-        container.html('<div style="text-align:center; color:#aaa; font-size:12px; padding:15px;">ไม่มีพืชที่กำลังปลูก</div>');
+        $("#farm-tracker").fadeOut(300);
         return;
     }
 
-    // เรียงลำดับ: พืชที่โตแล้ว (rotTime น้อยกว่า) ขึ้นก่อน, หรือตาม timeLeft
+    // เรียงลำดับ: พืชที่ใกล้จะเก็บได้ หรือโตแล้วขึ้นก่อน
     plants.sort((a, b) => a.timeLeft - b.timeLeft);
+
+    let activePlantsCount = 0; // ตัวนับจำนวนพืชที่ยังไม่เน่าเสีย
 
     plants.forEach(plant => {
         let isReady = plant.timeLeft <= 0;
         let statusDisplay = "";
 
         if (isReady) {
-            // [[ แก้ไขตรงนี้: ถ้าโตแล้ว ให้โชว์เวลานับถอยหลังเน่าเสีย ]]
-            if (plant.rotTime && plant.rotTime > 0) {
-                statusDisplay = `<span class="status-rotting">${formatTime(plant.rotTime)}</span>`;
+            // เช็คเวลาเน่าเสีย
+            if (plant.rotTime !== undefined && plant.rotTime !== 0) {
+                if (plant.rotTime > 0) {
+                    statusDisplay = `<span class="status-rotting">${formatTime(plant.rotTime)}</span>`;
+                } else {
+                    // ถ้าเน่าแล้ว ให้ข้ามการสร้าง UI ของต้นนี้ไปเลย (ลบออกจากจอ)
+                    return; 
+                }
             } else {
-                statusDisplay = `<span class="status-text">พร้อมเก็บเกี่ยว</span>`; // กรณีไม่ได้เปิด AutoDelete
+                statusDisplay = `<span class="status-text">พร้อมเก็บเกี่ยว</span>`; 
             }
         } else {
             statusDisplay = `<span class="plant-timer">${formatTime(plant.timeLeft)}</span>`;
         }
+
+        activePlantsCount++;
 
         let html = `
             <div class="plant-card">
@@ -105,6 +115,16 @@ function updatePlantList(plants) {
         `;
         container.append(html);
     });
+
+    // 2. เช็คอีกรอบ: ถ้าพืชทุกต้นเน่าเสียหายไปหมดแล้ว ให้ปิดหน้าต่าง UI
+    if (activePlantsCount === 0) {
+        $("#farm-tracker").fadeOut(300);
+    } else {
+        // แต่ถ้ายังมีพืชอยู่ และหน้าต่าง UI ซ่อนอยู่ ให้แสดงมันขึ้นมาอัตโนมัติ
+        if ($("#farm-tracker").is(":hidden")) {
+            $("#farm-tracker").fadeIn(300);
+        }
+    }
 }
 
 function formatTime(seconds) {
