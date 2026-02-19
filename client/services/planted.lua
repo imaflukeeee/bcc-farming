@@ -9,7 +9,18 @@ local HarvestGroup = GetRandomIntInRange(0, 0xffffff)
 local PromptsStarted = false
 local Crops = {}
 
--- [[ 1. เพิ่มฟังก์ชันหาพืชที่ใกล้ที่สุด (ป้องกันการกดทีเดียวเก็บทุกต้น) ]]
+-- [[ ฟังก์ชันวาดข้อความ 3D บนโลกเกม ]]
+local function DrawText3D(x, y, z, text, r, g, b)
+    local onScreen, _x, _y = GetScreenCoordFromWorldCoord(x, y, z)
+    if onScreen then
+        SetTextScale(0.35, 0.35)
+        SetTextFontForCurrentCommand(1)
+        SetTextColor(r or 255, g or 255, b or 255, 215)
+        SetTextCentre(1)
+        DisplayText(CreateVarString(10, "LITERAL_STRING", text), _x, _y)
+    end
+end
+
 local function GetClosestCropId(playerCoords)
     local closestId = nil
     local closestDist = 9999.0
@@ -27,16 +38,7 @@ local function GetClosestCropId(playerCoords)
 end
 
 local function StartPrompts()
-    -- [[ 2. สั่งปิดการสร้าง Prompt ตรงนี้ ]]
-    return true 
-
-    -- โค้ดเดิมข้างล่างนี้จะไม่ทำงาน
-    -- DBG:Info('Starting water and harvest prompts...')
-    -- if PromptsStarted then
-    --     DBG:Success('Prompts are already started')
-    --     return true
-    -- end
-    -- ...
+    return true -- ปิด Prompt เดิม
 end
 
 local function LoadModel(model, modelName)
@@ -178,31 +180,39 @@ RegisterNetEvent('bcc-farming:PlantPlanted', function(plantId, plantData, plantC
         local playerCoords = GetEntityCoords(PlayerPedId())
         local dist = #(playerCoords - vector3(plantCoords.x, plantCoords.y, plantCoords.z))
 
-        if dist <= 1.5 then
-            -- [[ 3. แก้ไข Logic: เช็คว่าเป็นต้นที่ใกล้ที่สุดหรือไม่ก่อนทำงาน ]]
+        if dist <= 1.5 then -- ระยะที่จะมองเห็น Text และกดปุ่มได้
             if GetClosestCropId(playerCoords) == plantId then
                 sleep = 0
 
-                -- Handle watered plants
+                -- ==========================================================
+                -- ส่วนแสดงผล Text 3D
+                -- ==========================================================
                 if tostring(Crops[plantId].watered) ~= 'false' then
                     if tonumber(timeLeft) > 0 then
-                        -- ช่วงรอโต (ปิด Prompt ทิ้ง)
-                        -- UiPromptSetEnabled(HarvestPrompt, false)
-                        -- UiPromptSetActiveGroupThisFrame(HarvestGroup, ...)
-
-                    -- Handle harvest
+                        -- กำลังโต (สีขาว, ไม่โชว์เวลา)
+                        DrawText3D(plantCoords.x, plantCoords.y, plantCoords.z + 0.5, "Growing", 255, 255, 255)
                     elseif tonumber(timeLeft) <= 0 then
-                        -- ช่วงเก็บเกี่ยว (ปิด Prompt ทิ้ง และใช้ IsControlJustPressed แทน)
-                        
-                        -- [[ ใช้ปุ่มกด Harvest (กดทีเดียว) ]]
+                        -- โตเต็มที่ (สีขาว)
+                        DrawText3D(plantCoords.x, plantCoords.y, plantCoords.z + 0.5, "Harvest", 255, 255, 255)
+                    end
+                else
+                    -- ยังไม่ได้รดน้ำ (สีฟ้า)
+                    DrawText3D(plantCoords.x, plantCoords.y, plantCoords.z + 0.5, "Needs Water", 0, 191, 255)
+                end
+
+                -- ==========================================================
+                -- ส่วน Logic ปุ่มกด (เหมือนเดิม)
+                -- ==========================================================
+                if tostring(Crops[plantId].watered) ~= 'false' then
+                    if tonumber(timeLeft) <= 0 then
+                        -- Harvest
                         if IsControlJustPressed(0, Config.keys.harvest) then
                             DBG:Info('Harvest key pressed...')
                             PlayAnim('mech_pickup@plant@berries', 'base', 2500, false, true)
                             Core.Callback.TriggerAwait('bcc-farming:HarvestCheck', plantId, plantData, false)
                         end
                     end
-
-                    -- [[ ใช้ปุ่มกด Destroy (สำหรับต้นที่รดน้ำแล้ว) ]]
+                    -- Destroy (โตแล้ว)
                     if IsControlJustPressed(0, Config.keys.destroy) then
                         DBG:Info('Destroy key pressed...')
                         local canDestroy = Core.Callback.TriggerAwait('bcc-farming:HarvestCheck', plantId, plantData, true)
@@ -212,16 +222,12 @@ RegisterNetEvent('bcc-farming:PlantPlanted', function(plantId, plantData, plantC
                     end
                 end
 
-                -- Handle unwatered plants
                 if tostring(Crops[plantId].watered) == 'false' then
                     local isRaining = GetRainLevel()
                     if isRaining > 0 then
                         TriggerServerEvent('bcc-farming:UpdatePlantWateredStatus', plantId)
                     else
-                        -- ปิด Prompt ทิ้ง
-                        -- UiPromptSetActiveGroupThisFrame(WaterGroup, ...)
-
-                        -- [[ ใช้ปุ่มกด Water (รดน้ำ) ]]
+                        -- Water
                         if IsControlJustPressed(0, Config.keys.water) then
                             DBG:Info('Water key pressed...')
                             local canWater = Core.Callback.TriggerAwait('bcc-farming:ManagePlantWateredStatus', plantId)
@@ -231,8 +237,7 @@ RegisterNetEvent('bcc-farming:PlantPlanted', function(plantId, plantData, plantC
                                 Core.NotifyRightTip(_U('noWaterBucket'), 4000)
                             end
                         end
-
-                        -- [[ ใช้ปุ่มกด Destroy (สำหรับต้นยังไม่รดน้ำ) ]]
+                        -- Destroy (ยังไม่รดน้ำ)
                         if IsControlJustPressed(0, Config.keys.destroy) then
                             DBG:Info('Destroy key pressed...')
                             local canDestroy = Core.Callback.TriggerAwait('bcc-farming:HarvestCheck', plantId, plantData, true)
@@ -242,10 +247,10 @@ RegisterNetEvent('bcc-farming:PlantPlanted', function(plantId, plantData, plantC
                         end
                     end
                 end
+
             else
-                -- ถ้าไม่ใช่ต้นที่ใกล้ที่สุด ให้รอเล็กน้อย
                 sleep = 100
-            end -- จบเงื่อนไข GetClosestCropId
+            end
         end
         Wait(sleep)
     end
@@ -262,29 +267,15 @@ RegisterNetEvent('bcc-farming:PlantPlanted', function(plantId, plantData, plantC
 end)
 
 RegisterNetEvent('bcc-farming:RemovePlantClient', function(plantId)
-    if not plantId then
-        DBG:Error('Invalid plantId received for RemovePlantClient')
-        return
-    end
-
+    if not plantId then return end
     if Crops[plantId] then
-        DBG:Info('Removing plant with ID: ' .. tostring(plantId))
         Crops[plantId].removePlant = true
-    else
-        DBG:Warning('Attempted to remove non-existent plant with ID: ' .. tostring(plantId))
     end
 end)
 
 RegisterNetEvent('bcc-farming:UpdateClientPlantWateredStatus', function (plantId)
-    if not plantId then
-        DBG:Error('Invalid plantId received for UpdateClientPlantWateredStatus')
-        return
-    end
-
+    if not plantId then return end
     if Crops[plantId] then
-        DBG:Info('Updating watered status for plant with ID: ' .. tostring(plantId))
         Crops[plantId].watered = 'true'
-    else
-        DBG:Warning('Attempted to update watered status for non-existent plant with ID: ' .. tostring(plantId))
     end
 end)

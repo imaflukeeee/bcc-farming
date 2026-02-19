@@ -171,3 +171,30 @@ body {
     width: auto;
     min-width: 150px;
 }
+
+.status-growing {
+    font-size: 11px;
+    font-weight: 500;
+    color: #FFC107; /* สีเหลืองทอง */
+    font-variant-numeric: tabular-nums; /* ให้ตัวเลขเวลานิ่งไม่ขยับไปมา */
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* เพิ่ม Class ใหม่สำหรับสถานะ Harvest (เก็บเกี่ยว) */
+.status-harvest {
+    font-size: 11px;
+    font-weight: 700;
+    color: #4CAF50; /* สีเขียว */
+    text-transform: uppercase; /* ตัวพิมพ์ใหญ่ทั้งหมด */
+    letter-spacing: 0.5px;
+    animation: pulse 2s infinite; /* เพิ่มลูกเล่นกระพริบเบาๆ (ถ้าต้องการ) */
+}
+
+/* (Option) เพิ่ม Animation ให้คำว่า Harvest เด่นขึ้น */
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.7; }
+    100% { opacity: 1; }
+}
