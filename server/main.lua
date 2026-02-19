@@ -732,7 +732,6 @@ CreateThread(function()
         local timeLeft
 
         -- [[ 1. เช็คผู้เล่นที่ออนไลน์ ]]
-        -- สร้าง Map ของ Character Identifier ที่ออนไลน์อยู่ในขณะนั้น
         local onlineChars = {}
         local players = GetPlayers()
         for _, src in ipairs(players) do
@@ -740,51 +739,41 @@ CreateThread(function()
             if user then
                 local char = user.getUsedCharacter
                 if char and char.charIdentifier then
-                    onlineChars[char.charIdentifier] = true
+                    onlineChars[char.charIdentifier] = tonumber(src) -- เก็บ Source ไว้ใช้ส่ง Notify
                 end
             end
         end
 
-        -- Fetch all plants from the database
-        local allPlants = MySQL.query.await('SELECT * FROM `bcc_farming`')
+        -- [[ แก้ไข Query: เพิ่ม UNIX_TIMESTAMP เพื่อเอาเวลาเริ่มปลูกที่เป็นตัวเลข ]]
+        local allPlants = MySQL.query.await('SELECT *, UNIX_TIMESTAMP(plant_time) as plant_epoch FROM `bcc_farming`')
         if not allPlants then
             DBG:Warning('Failed to fetch plants from database. Will try again.')
             Wait(5000)
             goto continueThread
         end
 
-        -- Update global AllPlants table
         AllPlants = allPlants
-        --DBG:Info('Fetched ' .. tostring(#allPlants) .. ' plants from database.')
 
-        -- Process each plant
         if #allPlants > 0 then
             for _, plant in pairs(allPlants) do
-                -- Validate plant data
                 if not plant or not plant.plant_id or not plant.time_left or not plant.plant_watered then
-                    DBG:Warning('Invalid plant data detected')
                     goto continuePlant
                 end
 
                 timeLeft = tonumber(plant.time_left)
+                local ownerSource = onlineChars[plant.plant_owner] -- เช็คว่าเจ้าของออนไลน์ไหม
 
-                -- [[ 2. เช็คว่าเจ้าของต้นไม้ Online อยู่หรือไม่ ]]
-                local isOwnerOnline = onlineChars[plant.plant_owner]
-
-                -- Only process watered plants with time left AND owner is online
-                -- เพิ่มเงื่อนไข `and isOwnerOnline` เข้าไป
-                if plant.plant_watered == 'true' and timeLeft > 0 and isOwnerOnline then
+                if plant.plant_watered == 'true' and timeLeft > 0 and ownerSource then
                     local newTime = timeLeft - 1
-                    --DBG:Info('Updating plant ID: ' .. tostring(plant.plant_id) .. ', time left: ' .. tostring(newTime))
-
-                    -- Update plant time in database
+                    
                     local success = MySQL.update.await('UPDATE `bcc_farming` SET `time_left` = ? WHERE `plant_id` = ?',
                         { newTime, plant.plant_id })
 
-                    if not success then
-                        DBG:Warning('Failed to update time for plant ID: ' .. tostring(plant.plant_id))
-                    else
-                        DBG:Info('Successfully updated time for plant ID: ' .. tostring(plant.plant_id))
+                    if success then
+                        -- [[ เพิ่มใหม่: แจ้งเตือนเมื่อโตเสร็จ (เหลือ 0 วินาที) ]]
+                        if newTime == 0 then
+                            NotifyClient(ownerSource, "พืชเจริญของคุณเจริญเติบโตเต็มที่ โปรดเก็บเกี่ยวก่อนเน่าเสีย", "success", 5000)
+                        end
                     end
                 end
                 ::continuePlant::
@@ -893,32 +882,78 @@ RegisterNetEvent('bcc-farming:RequestMyPlants', function()
     local charId = character.charIdentifier
     local myPlants = {}
     
-    -- วนลูปหาพืชทั้งหมดในเซิร์ฟเวอร์
+    local currentTime = os.time() -- เวลาเซิฟเวอร์ปัจจุบัน
+
     for _, plant in pairs(AllPlants) do
-        -- เช็คว่าเป็นของคนนี้หรือไม่
         if plant.plant_owner == charId then
-            local plantLabel = plant.plant_type -- ชื่อ Default (ชื่อ Seed)
-            local maxGrowthTime = 900 -- ค่า Default 15 นาที
+            local plantLabel = plant.plant_type
+            local maxGrowthTime = 900
             
-            -- ค้นหาชื่อจริงและเวลาเติบโตจาก Config
             for _, cfg in pairs(Plants) do
                 if cfg.seedName == plant.plant_type then
-                    -- ใช้ plantName หรือ Label ถ้ามี
                     plantLabel = cfg.plantNameUI or cfg.label or cfg.plantName or plant.plant_type
                     maxGrowthTime = cfg.timeToGrow or 900
                     break
                 end
             end
 
+            -- [[ เพิ่มใหม่: คำนวณเวลาเน่าเสีย ]]
+            local rotTimeLeft = 0
+            if Config.AutoDelete and Config.AutoDelete.Enabled and plant.plant_epoch then
+                -- เวลาที่ปลูก + อายุขัย(ชั่วโมง*3600) - เวลาปัจจุบัน
+                local expireTime = plant.plant_epoch + (Config.AutoDelete.LifeTimeHours * 3600)
+                rotTimeLeft = expireTime - currentTime
+            end
+
             table.insert(myPlants, {
                 id = plant.plant_id,
                 label = plantLabel,
                 timeLeft = tonumber(plant.time_left),
-                growthTime = tonumber(maxGrowthTime)
+                growthTime = tonumber(maxGrowthTime),
+                rotTime = rotTimeLeft -- ส่งค่านี้ไปให้ UI
             })
         end
     end
     
-    -- ส่งข้อมูลกลับไปหา Client คนนั้น
     TriggerClientEvent('bcc-farming:ReceiveMyPlants', src, myPlants)
+end)
+
+-- [server/main.lua] เพิ่มไว้ล่างสุดของไฟล์
+
+CreateThread(function()
+    -- รอให้ Script รันขึ้นมาสักพักก่อนเริ่มทำงาน
+    Wait(10000)
+
+    if not Config.AutoDelete or not Config.AutoDelete.Enabled then
+        DBG:Info("Auto Delete System is DISABLED.")
+        return
+    end
+
+    while true do
+        -- คำนวณช่วงเวลา (เปลี่ยนนาทีเป็นมิลลิวินาที)
+        local checkIntervalMs = Config.AutoDelete.CheckInterval * 60 * 1000
+        
+        -- Query เพื่อลบข้อมูลที่เก่ากว่ากำหนด
+        -- หลักการ: ลบแถวที่ plant_time น้อยกว่า (เวลาปัจจุบัน - เวลาที่ตั้งไว้)
+        local affectedRows = MySQL.update.await(
+            'DELETE FROM `bcc_farming` WHERE `plant_time` < (NOW() - INTERVAL ? HOUR)', 
+            { Config.AutoDelete.LifeTimeHours }
+        )
+
+        if affectedRows and affectedRows > 0 then
+            DBG:Success('Auto Cleanup: Deleted ' .. affectedRows .. ' expired plants/crops.')
+            
+            -- บังคับให้ Client อัปเดตข้อมูล (ลบต้นไม้ที่เน่าแล้วออกจากหน้าจอ)
+            -- โดยการส่ง Event ให้ Client ลบต้นไม้ หรือ รอ Loop ปกติของ Script จัดการ
+            -- วิธีที่ง่ายที่สุดคือ Trigger ให้ทุกคนรู้ว่ามีการเปลี่ยนแปลง (Optional)
+            -- TriggerClientEvent('bcc-farming:RemovePlantClient', -1, plantId) <-- เนื่องจากเราลบแบบ Bulk อาจจะยากที่จะส่ง ID ทีละตัว
+            -- แต่ใน Script เดิม Client จะเช็ค distance ตลอดเวลา ถ้าหาไม่เจอใน DB เดี๋ยว Script หลักอาจจะ error ได้ 
+            -- ดังนั้นแนะนำให้ Restart Server เพื่อ Clear Object หรือ รอระบบ Sync ครั้งถัดไป
+        else
+            DBG:Info('Auto Cleanup: No expired plants found.')
+        end
+
+        -- รอจนกว่าจะถึงรอบตรวจถัดไป
+        Wait(checkIntervalMs)
+    end
 end)

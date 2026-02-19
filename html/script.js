@@ -79,14 +79,23 @@ function updatePlantList(plants) {
         return;
     }
 
+    // เรียงลำดับ: พืชที่โตแล้ว (rotTime น้อยกว่า) ขึ้นก่อน, หรือตาม timeLeft
     plants.sort((a, b) => a.timeLeft - b.timeLeft);
 
     plants.forEach(plant => {
         let isReady = plant.timeLeft <= 0;
-        
-        let statusDisplay = isReady ? 
-            `<span class="status-text">พร้อมเก็บเกี่ยว</span>` : 
-            `<span class="plant-timer">${formatTime(plant.timeLeft)}</span>`;
+        let statusDisplay = "";
+
+        if (isReady) {
+            // [[ แก้ไขตรงนี้: ถ้าโตแล้ว ให้โชว์เวลานับถอยหลังเน่าเสีย ]]
+            if (plant.rotTime && plant.rotTime > 0) {
+                statusDisplay = `<span class="status-rotting">${formatTime(plant.rotTime)}</span>`;
+            } else {
+                statusDisplay = `<span class="status-text">พร้อมเก็บเกี่ยว</span>`; // กรณีไม่ได้เปิด AutoDelete
+            }
+        } else {
+            statusDisplay = `<span class="plant-timer">${formatTime(plant.timeLeft)}</span>`;
+        }
 
         let html = `
             <div class="plant-card">
@@ -100,7 +109,14 @@ function updatePlantList(plants) {
 
 function formatTime(seconds) {
     if (seconds < 0) seconds = 0;
-    let m = Math.floor(seconds / 60);
+    
+    let h = Math.floor(seconds / 3600);
+    let m = Math.floor((seconds % 3600) / 60);
     let s = seconds % 60;
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+
+    if (h > 0) {
+        return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    } else {
+        return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    }
 }
