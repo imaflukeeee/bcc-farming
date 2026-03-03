@@ -295,7 +295,7 @@ RegisterNetEvent('bcc-farming:AddPlant', function(plantData, plantCoords)
     -- [[ AUTO WATER LOGIC END ]] --
 
     -- Insert plant into database
-    local plantId = MySQL.insert.await('INSERT INTO `bcc_farming` (plant_coords, plant_type, plant_watered, time_left, plant_owner) VALUES (?, ?, ?, ?, ?)',
+    local plantId = MySQL.insert.await('INSERT INTO `farming` (plant_coords, plant_type, plant_watered, time_left, plant_owner) VALUES (?, ?, ?, ?, ?)',
     { json.encode(finalCoords), plantData.seedName, isWatered, plantData.timeToGrow, character.charIdentifier })
 
     if not plantId then
@@ -443,7 +443,7 @@ Core.Callback.Register('bcc-farming:ManagePlantWateredStatus', function(source, 
     end
 
     -- [[ 1. ดึงข้อมูลพืชจากฐานข้อมูลเพื่อดูว่าเป็นพืชชนิดไหน ]]
-    local plantRow = MySQL.single.await('SELECT plant_type FROM `bcc_farming` WHERE `plant_id` = ?', { plantId })
+    local plantRow = MySQL.single.await('SELECT plant_type FROM `farming` WHERE `plant_id` = ?', { plantId })
     if not plantRow or not plantRow.plant_type then
         DBG:Error('Plant type not found in database for ID: ' .. tostring(plantId))
         return cb(false)
@@ -507,7 +507,7 @@ Core.Callback.Register('bcc-farming:ManagePlantWateredStatus', function(source, 
             end
 
             -- Update plant watered status in database
-            local successUpdate = MySQL.update.await('UPDATE `bcc_farming` SET `plant_watered` = ? WHERE `plant_id` = ?', { 'true', plantId })
+            local successUpdate = MySQL.update.await('UPDATE `farming` SET `plant_watered` = ? WHERE `plant_id` = ?', { 'true', plantId })
 
             if not successUpdate then
                 DBG:Error('Failed to update plant watered status in database for plantId: ' .. tostring(plantId))
@@ -541,7 +541,7 @@ RegisterNetEvent('bcc-farming:UpdatePlantWateredStatus', function(plantId)
     end
 
     -- Update plant watered status in database
-    local result = MySQL.update.await('UPDATE `bcc_farming` SET `plant_watered` = ? WHERE `plant_id` = ?', { 'true', plantId })
+    local result = MySQL.update.await('UPDATE `farming` SET `plant_watered` = ? WHERE `plant_id` = ?', { 'true', plantId })
 
     if not result then
         DBG:Error('Failed to update plant watered status in database for plantId: ' .. tostring(plantId))
@@ -573,7 +573,7 @@ Core.Callback.Register('bcc-farming:HarvestCheck', function(source, cb, plantId,
 
     -- =======================================================
     -- [[ เพิ่มโค้ดป้องกันบัคตรงนี้: เช็คว่าต้นไม้ยังอยู่ใน DB หรือไม่ ]]
-    local checkPlant = MySQL.single.await('SELECT `plant_id` FROM `bcc_farming` WHERE `plant_id` = ?', { plantId })
+    local checkPlant = MySQL.single.await('SELECT `plant_id` FROM `farming` WHERE `plant_id` = ?', { plantId })
     if not checkPlant then
         -- ถ้าหาไม่เจอ แสดงว่าต้นไม้เน่าเสียหรือถูกลบไปแล้ว ให้สั่งลบ Prop ทันที และยกเลิกการให้ไอเทม
         TriggerClientEvent('bcc-farming:RemovePlantClient', -1, plantId) -- สั่งลบ Prop ออกจากหน้าจอทุกคน
@@ -624,7 +624,7 @@ Core.Callback.Register('bcc-farming:HarvestCheck', function(source, cb, plantId,
     end
 
     -- Update plant status in database and remove plant from clients
-    local result = MySQL.query.await('DELETE FROM `bcc_farming` WHERE `plant_id` = ?', { plantId })
+    local result = MySQL.query.await('DELETE FROM `farming` WHERE `plant_id` = ?', { plantId })
 
     if not result or (result and result.affectedRows and result.affectedRows == 0) then
         DBG:Error('Failed to delete plant with ID: ' .. tostring(plantId) .. ' from database')
@@ -757,7 +757,7 @@ CreateThread(function()
         end
 
         -- [[ แก้ไข Query: เพิ่ม UNIX_TIMESTAMP เพื่อเอาเวลาเริ่มปลูกที่เป็นตัวเลข ]]
-        local allPlants = MySQL.query.await('SELECT *, UNIX_TIMESTAMP(plant_time) as plant_epoch FROM `bcc_farming`')
+        local allPlants = MySQL.query.await('SELECT *, UNIX_TIMESTAMP(plant_time) as plant_epoch FROM `farming`')
         if not allPlants then
             DBG:Warning('Failed to fetch plants from database. Will try again.')
             Wait(5000)
@@ -778,7 +778,7 @@ CreateThread(function()
                 if plant.plant_watered == 'true' and timeLeft > 0 and ownerSource then
                     local newTime = timeLeft - 1
                     
-                    local success = MySQL.update.await('UPDATE `bcc_farming` SET `time_left` = ? WHERE `plant_id` = ?',
+                    local success = MySQL.update.await('UPDATE `farming` SET `time_left` = ? WHERE `plant_id` = ?',
                         { newTime, plant.plant_id })
 
                     if success then
@@ -945,14 +945,14 @@ CreateThread(function()
         
         -- 1. [แก้ไข] ค้นหาพืชที่เน่าเสีย และดึง `plant_owner` (เจ้าของ) มาด้วย
         local expiredPlants = MySQL.query.await(
-            'SELECT `plant_id`, `plant_owner` FROM `bcc_farming` WHERE `plant_time` < (NOW() - INTERVAL ? SECOND)', 
+            'SELECT `plant_id`, `plant_owner` FROM `farming` WHERE `plant_time` < (NOW() - INTERVAL ? SECOND)', 
             { Config.AutoDelete.LifeTimeSeconds }
         )
 
         if expiredPlants and #expiredPlants > 0 then
             -- 2. ลบออกจาก Database
             local affectedRows = MySQL.update.await(
-                'DELETE FROM `bcc_farming` WHERE `plant_time` < (NOW() - INTERVAL ? SECOND)', 
+                'DELETE FROM `farming` WHERE `plant_time` < (NOW() - INTERVAL ? SECOND)', 
                 { Config.AutoDelete.LifeTimeSeconds }
             )
 

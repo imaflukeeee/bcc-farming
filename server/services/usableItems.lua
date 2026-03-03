@@ -173,7 +173,7 @@ CreateThread(function()
 
             -- Max Plants Check
             DBG:Info("Checking max plants limit...")
-            local playerPlants = MySQL.query.await('SELECT * FROM `bcc_farming` WHERE `plant_owner` = ?', { character.charIdentifier })
+            local playerPlants = MySQL.query.await('SELECT * FROM `farming` WHERE `plant_owner` = ?', { character.charIdentifier })
             if not playerPlants or #playerPlants >= Config.plantSetup.maxPlants then
                 DBG:Error("Player reached max plants limit")
                 NotifyClient(src, _U('maxPlantsReached'), "error", 4000)
